@@ -1,0 +1,102 @@
+########################################################################
+# Toy / smoke-test configuration.
+#
+# Pairs with example/generate_toy_data.py: run that first, then point
+# run_pipeline.sh (or the scripts directly) at this file to exercise the
+# whole pipeline in seconds on a 40x40px, 2-sample, 3-marker dataset.
+#
+# Structurally identical to the real config.yaml - only the paths, run
+# list, and marker names are toy-sized.
+########################################################################
+
+project:
+  name: "CODEX_toy_example"
+
+paths:
+  wdir: "/tmp/codex_toy"                 # <- change if you generated the toy data elsewhere
+
+  input_images_subdir: "data/cropped_images"
+  seg1_masks_subdir: "data/Cell_masks_cropped"
+  seg2_masks_subdir: "data/MK_masks_cropped"
+  marker_list_file: "data/MarkerList.txt"
+
+  pipeline_run_subdir: "pipeline_run"
+  zarr_subdir: "resulting_data/zarr"
+  quant_subdir: "resulting_data/quantifications"
+  visual_output_subdir: "visual_output"
+
+  scripts_dir: "REPLACE_WITH_ABS_PATH/pipeline/scripts"
+  slurm_dir: "REPLACE_WITH_ABS_PATH/pipeline/slurm"
+  log_dir: "/tmp/codex_toy/pipeline_run/logs"
+
+  zarr_prefix: "test_"
+
+runs:
+  - id: "99"
+    conditions: ["ctrl", "treated"]
+    working_samples: [1, 2]
+
+segmentation:
+  seg_files_suffix: "Cell_mask_"
+  seg2_files_suffix: "MK_mask_"
+  img_files_suffix: "Fusion_run"
+  files_suffix_replace: "run"
+  segmentation_markers: ["DAPI", "127 CD61"]
+  segmentation_colors: ["blue", "red"]
+  merge_labels_order: ["127 CD61", "DAPI"]
+  intensity_func: "intensity_mean"
+  merge_threshold: 1
+  plot_dpi: 150            # low-res is fine for a smoke test, and much faster
+
+visualization:
+  intensities_file_suffix: "_asinh.csv"
+  scatter_markers: ["010 CD14"]
+  spatial_spot_size: 20
+  scanpy_dpi: 80
+  scanpy_dpi_save: 150
+
+integration:
+  intensities_file_prefix: "test_"
+  intensities_file_suffix: "_asinh.csv"
+
+  # drop DAPI only - keep both remaining toy markers so P1-P3 have
+  # something to cluster on
+  not_working_markers:
+    - "DAPI"
+
+  # self-pair placeholder, same pattern as the real config - swap for a
+  # real doublet-marker pair on real data
+  aberrant_combinations:
+    c1: ["X127.CD61", "X127.CD61"]
+  aberrant_quantile_threshold: 0.99 # loose, so the tiny toy dataset isn't filtered to nothing
+
+  #min_cells_threshold: 1        # toy dataset only has 8 cells total; real data should use a higher value
+  #min_features_threshold: 1
+  min_cells_threshold: 3 
+  min_features_threshold: 3
+  vars_to_regress: ["sample"]   # only 1 toy run, so nothing to regress out across runs
+
+  #npcs: 2                       # toy dataset only has 2 markers left after dropping DAPI
+  npcs: 10
+  clustering:
+    res_init: 0.1
+    res_final: 0.3
+    res_step: 0.1
+
+  chosen_resolution: "SCT_snn_res.0.2"
+  cluster_palette: "Paired"
+
+slurm:
+  partition: "batch"
+  account: null
+  py_conda_env: "CODEX_env"
+  r_conda_env: "r_env"
+  r_conda_env_path: null
+  #r_conda_env_path: "/beegfs/home/mruiz/miniconda3/envs/r_env" # only needed if reticulate can't find r_conda_env by name
+
+  intensities:        {time: "00:10:00", mem: "2G", cpus: 1}
+  codex_vis:          {time: "00:10:00", mem: "2G", cpus: 1}
+  codex_vis_bgfilt:   {time: "00:10:00", mem: "2G", cpus: 1}
+  integration_p1:     {time: "00:10:00", mem: "2G", cpus: 1}
+  integration_p2:     {time: "00:10:00", mem: "2G", cpus: 1}
+  integration_p3:     {time: "00:10:00", mem: "2G", cpus: 1}
