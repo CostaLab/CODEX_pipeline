@@ -1,0 +1,149 @@
+########################################################################
+# CODEX pipeline configuration
+#
+# This is the ONE file you edit to change inputs/parameters for the whole
+# pipeline. It is read by every Python script (via scripts/py_config.py)
+# and every R script (via scripts/r_config.R).
+########################################################################
+
+project:
+  name: "CODEX_PICseq"
+
+########################################################################
+# Paths. "wdir" is the project root. Everything else is given relative
+# to it (or relative to pipeline_run_subdir where noted) so the whole
+# tree can be relocated by changing just `wdir`.
+########################################################################
+paths:
+  wdir: "/beegfs/home/mruiz/CODEX_pipeline_test/CODEX_pipeline"
+
+  # raw inputs, relative to wdir
+  input_images_subdir: "../data/image"
+  seg1_masks_subdir: "../data/cell_mask"
+  seg2_masks_subdir: "../data/MK_mask"                # Optional - set to null (or delete this line) if you only have one mask
+  marker_list_file: "../data/MarkerList.txt"          # relative to wdir
+
+  # everything the pipeline produces lives under wdir/<pipeline_run_subdir>
+  pipeline_run_subdir: "pipeline_run"
+  zarr_subdir: "resulting_data/zarr"
+  quant_subdir: "resulting_data/quantifications"
+  visual_output_subdir: "visual_output"
+
+  # where the scripts + slurm files themselves live (used by run_pipeline.sh)
+  scripts_dir: "/beegfs/home/mruiz/CODEX_pipeline_test/CODEX_pipeline/scripts"
+  slurm_dir: "/beegfs/home/mruiz/CODEX_pipeline_test/CODEX_pipeline/slurm"
+  log_dir: "/beegfs/home/mruiz/CODEX_pipeline_test/CODEX_pipeline/pipeline_run/logs"
+
+  # zarr file naming: files are written/read as <zarr_dir>/<zarr_prefix><region_key>.zarr
+  zarr_prefix: "test_"
+
+########################################################################
+# runs: one entry per CODEX run. `id` matches the run number embedded in
+# filenames (e.g. "21" -> Fusion_run21.tif, Cell_mask_run21...).
+# `conditions` is the condition per sample, in the SAME order that
+# `working_samples` indexes into (1-based, matching the original R code).
+########################################################################
+runs:
+  - id: "46"
+    conditions: ["EV", "Thpo"]
+    working_samples: [1, 2]
+#  - id: "22"
+#    conditions: ["d365", "d0", "d60"]
+#    working_samples: [1, 2, 3]
+
+########################################################################
+# Step 1: intensities.py  (segmentation + quantification -> zarr)
+########################################################################
+segmentation:
+  seg_files_suffix: "cell_mask_run"    # DAPI segmentation mask files in this example were called: cell_mask_run46_<condition>.tif . 
+                                       # This would also work for files named: cell_mask_run46_<condition>_<sample_id>.tif .
+                                       
+  seg2_files_suffix: "MK_mask_run"     # unused when paths.seg2_masks_subdir is blank (single-mask mode)
+                                       # Megakaryocyte segmentation mask files in this example were called: MK_mask_run46_<condition>.tif . 
+                                       # This would also work for files named: MK_mask_run46_<condition>_<sample_id>.tif .
+  
+  img_files_suffix: "run"              # image files in this example were called: run46_<condition>.tif
+                                       # This would also work for files named: run46_<condition>_<sample_id>.tif .
+  
+  files_suffix_replace: "run"          # all three suffixes above get replaced with this
+  
+  # one marker/color per mask you have - 2 entries for two-mask mode
+  # (matches merge_labels_order below), 1 entry for single-mask mode.
+  segmentation_markers: ["DAPI", "127 CD61"]
+  segmentation_colors: ["blue", "red"]
+  # order used for pp.merge_segmentation(labels=...) - big-cells mask label goes first
+  # unused when paths.seg2_masks_subdir is blank (single-mask mode).
+  merge_labels_order: ["127 CD61", "DAPI"]
+  intensity_func: "intensity_mean"     # one of: intensity_mean (built-in), intensity_sum, intensity_median, intensity_sum_arcsinh_scaled
+  merge_threshold: 1
+  plot_dpi: 2400
+
+########################################################################
+# Step 2/3: codex_vis.py / codex_vis_bgFilt.py (per-cell plots + intensity export)
+########################################################################
+visualization:
+  intensities_file_suffix: "_asinh.csv"
+  scatter_markers: ["Col1a 19", "Osteopontin 166", "11 aSMA", "33 CD45"]
+  spatial_spot_size: 20
+  scanpy_dpi: 100
+  scanpy_dpi_save: 900
+
+########################################################################
+# Steps 4-6: R integration scripts (Seurat/Harmony)
+########################################################################
+integration:
+  intensities_file_prefix: "test_"
+  intensities_file_suffix: "_asinh.csv"
+
+  # markers dropped before building the Seurat object. NOTE: these must be
+  # given as valid R names (i.e. as they appear after R's make.names() on
+  # the CSV header - spaces/parentheses become dots, leading digits get an X).
+  not_working_markers:
+    - "DAPI"
+    - "X128.Na.K.ATPase"
+
+  # "aberrant" marker combinations used to filter doublets/artifacts
+  aberrant_combinations:
+#    c1: ["X125.MCT", "X125.MCT"]
+#    c2: ["blah1", "blah2"]
+  aberrant_quantile_threshold: 0.9
+
+  min_cells_threshold: 3
+  min_features_threshold: 3
+  #vars_to_regress: ["sample", "run"]
+  vars_to_regress: ["sample"]
+
+  # P2: PCA / UMAP / clustering sweep
+  npcs: 16
+  clustering:
+    res_init: 0.1
+    res_final: 0.5
+    res_step: 0.1
+
+  # P3: final marker annotation at a chosen resolution
+  chosen_resolution: "SCT_snn_res.0.3"
+  cluster_palette: "Paired"
+
+########################################################################
+# SLURM resources per step. `partition`/`account` apply to all steps
+# unless overridden inside a step's own block.
+########################################################################
+slurm:
+  partition: "defq"
+  account: null           # e.g. "schneiderlab" - set to null to omit --account
+  py_conda_env: "CODEX_env"   # conda env with spatialproteomics/scanpy/anndata
+  r_conda_env: "r_env"     # conda env with Seurat/harmony/sctransform/yaml
+  # Optional. codex_integration_P3.r uses reticulate to call Python
+  # (via scCustomize::as.anndata()) and binds it to r_conda_env by name.
+  # If reticulate can't find your env that way (some HPC conda installs
+  # live outside the locations name-based lookup checks), set the full
+  # path here instead, e.g. "/home/you/miniconda3/envs/codex_r". Leave
+  # null if name-based lookup works for you - most setups don't need this.
+  r_conda_env_path: "/beegfs/home/mruiz/miniconda3/envs/r_env"
+
+  intensities:        {time: "24:00:00", mem: "64G",  cpus: 8,  gpus: 0}
+  codex_vis:          {time: "12:00:00", mem: "32G",  cpus: 4,  gpus: 0}
+  codex_vis_bgfilt:   {time: "08:00:00", mem: "32G",  cpus: 4,  gpus: 0}
+  integration_p1:     {time: "24:00:00", mem: "128G", cpus: 16, gpus: 0}
+  integration_p2:     {time: "12:00:00", mem: "64G",  cpus: 8,  gpus: 0}
+  integration_p3:     {time: "08:00:00", mem: "32G",  cpus: 4,  gpus: 0}
