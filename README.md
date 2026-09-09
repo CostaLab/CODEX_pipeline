@@ -4,6 +4,8 @@
 [![Python 3.8+](https://shields.io)](https://python.org)
 
 This repository contains a collection of scripts for the analysis and processing of high-dimensional **CODEX** (Co-detection by Indexing) multiplexed imaging data.
+The pipeline enables you to run these scripts one after another on your CODEX data.
+This CODEX analysis pipeline was developed while analysing data from fibrotic spleens from fibrosis mouse models published here: https://www.cell.com/cell-stem-cell/fulltext/S1934-5909(26)00272-9 
 
 ---
 
